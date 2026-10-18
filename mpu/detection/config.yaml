@@ -1,0 +1,22 @@
+%YAML:1.0
+---
+
+# detector 
+work_width: 640          
+roi_top_frac: 0.30       # ignore the top 30% of the image (sky)
+roi_bottom_frac: 0.0     # ignore the bottom part if the bot's body is visible
+z_thresh: 6.0            
+min_area_frac: 0.003     
+max_area_frac: 0.35      
+w_color: 1.0             # weight - weight
+
+confirm_frames: 3        # frames in a row before a site is CONFIRMED
+lost_frames: 5           # missed frames before it is dropped
+gate_px: 60             
+ema_alpha: 0.5           
+
+# camera / output 
+max_fps: 10
+save_evidence: 1
+evidence_dir: evidence
+
