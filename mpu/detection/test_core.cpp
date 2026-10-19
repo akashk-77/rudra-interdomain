@@ -2,6 +2,9 @@
 // Build/run: make test
 #include <cmath>
 #include <cstdio>
+#include <initializer_list>
+#include <utility>
+#include <vector>
 
 #include "geometry.hpp"
 #include "tracker.hpp"
@@ -128,6 +131,87 @@ static void test_tracker_smooths_centroid() {
     NEAR(o.centroid.x, 110.0, 1e-4);
 }
 
+
+// ---- multi tracker ---------------------------------------------------------
+typedef std::vector<Candidate> Cands;
+static Cands C(std::initializer_list<std::pair<float, float>> pts) {
+    Cands v; for (auto& p : pts) v.push_back(cand(p.first, p.second)); return v;
+}
+static const TrackedSite* near_site(const std::vector<TrackedSite>& s, float x, float y) {
+    for (auto& t : s) if (std::hypot(t.out.centroid.x - x, t.out.centroid.y - y) < 30.f) return &t;
+    return nullptr;
+}
+
+static void test_multi_confirms_each_site_with_distinct_ids() {
+    MultiTracker m;
+    std::vector<TrackedSite> s;
+    for (int i = 0; i < 3; i++) s = m.update(C({{100, 100}, {300, 200}, {500, 300}}));
+    CHECK(s.size() == 3);
+    for (auto& t : s) CHECK(t.out.status == TrackStatus::Confirmed && t.out.newly_confirmed);
+    CHECK(s[0].id != s[1].id && s[1].id != s[2].id && s[0].id != s[2].id);
+    s = m.update(C({{100, 100}, {300, 200}, {500, 300}}));
+    for (auto& t : s) CHECK(!t.out.newly_confirmed);
+}
+
+static void test_multi_ids_follow_position_not_list_order() {
+    MultiTracker m;
+    std::vector<TrackedSite> s = m.update(C({{100, 100}, {300, 200}, {500, 300}}));
+    const int idA = near_site(s, 100, 100)->id, idB = near_site(s, 300, 200)->id;
+    s = m.update(C({{500, 300}, {100, 100}, {300, 200}}));        // same sites, different order
+    CHECK(near_site(s, 100, 100)->id == idA);
+    CHECK(near_site(s, 300, 200)->id == idB);
+}
+
+static void test_multi_one_site_flickers_others_stay_confirmed() {
+    MultiTracker m;
+    std::vector<TrackedSite> s;
+    for (int i = 0; i < 3; i++) s = m.update(C({{100, 100}, {300, 200}, {500, 300}}));
+    const int idB = near_site(s, 300, 200)->id;
+    s = m.update(C({{100, 100}, {500, 300}}));                    // B missing this frame
+    CHECK(near_site(s, 100, 100)->out.status == TrackStatus::Confirmed);
+    CHECK(near_site(s, 500, 300)->out.status == TrackStatus::Confirmed);
+    CHECK(near_site(s, 300, 200)->out.status == TrackStatus::Coasting);
+    s = m.update(C({{100, 100}, {300, 200}, {500, 300}}));        // B is back
+    CHECK(near_site(s, 300, 200)->id == idB);
+    CHECK(near_site(s, 300, 200)->out.status == TrackStatus::Confirmed);
+}
+
+static void test_multi_capacity_limit() {
+    MultiTracker m(TrackerConfig(), 3);
+    auto s = m.update(C({{50, 50}, {200, 50}, {350, 50}, {500, 50}}));
+    CHECK(s.size() == 3);
+}
+
+static void test_multi_lost_track_frees_slot_for_new_site() {
+    MultiTracker m(TrackerConfig(), 3);
+    std::vector<TrackedSite> s;
+    for (int i = 0; i < 3; i++) s = m.update(C({{100, 100}, {300, 200}, {500, 300}}));
+    for (int i = 0; i < 5; i++) s = m.update(C({{100, 100}, {300, 200}}));   // C vanishes
+    CHECK(s.size() == 2);
+    s = m.update(C({{100, 100}, {300, 200}, {50, 400}}));
+    CHECK(s.size() == 3);
+    const TrackedSite* n = near_site(s, 50, 400);
+    CHECK(n && n->id == 4 && n->out.status == TrackStatus::Tracking);
+}
+
+static void test_multi_empty_frames_drop_everything() {
+    MultiTracker m;
+    for (int i = 0; i < 3; i++) m.update(C({{100, 100}, {300, 200}}));
+    std::vector<TrackedSite> s;
+    for (int i = 0; i < 5; i++) s = m.update(Cands());
+    CHECK(s.empty());
+}
+
+static void test_multi_far_candidate_does_not_steal_a_track() {
+    MultiTracker m;
+    std::vector<TrackedSite> s;
+    for (int i = 0; i < 3; i++) s = m.update(C({{100, 100}}));
+    const int id = s[0].id;
+    s = m.update(C({{100, 100}, {400, 400}}));
+    CHECK(near_site(s, 100, 100)->id == id);
+    CHECK(near_site(s, 400, 400)->id != id);
+}
+
 int main() {
     struct T { const char* n; void (*f)(); } tests[] = {
         {"centre_pixel_45deg_down", test_centre_pixel_45deg_down},
@@ -145,6 +229,13 @@ int main() {
         {"tracker_far_candidate_does_not_hijack", test_tracker_far_candidate_does_not_hijack},
         {"tracker_switches_to_new_site_after_lost", test_tracker_switches_to_new_site_after_lost},
         {"tracker_smooths_centroid", test_tracker_smooths_centroid},
+        {"multi_confirms_each_site_with_distinct_ids", test_multi_confirms_each_site_with_distinct_ids},
+        {"multi_ids_follow_position_not_list_order", test_multi_ids_follow_position_not_list_order},
+        {"multi_one_site_flickers_others_stay_confirmed", test_multi_one_site_flickers_others_stay_confirmed},
+        {"multi_capacity_limit", test_multi_capacity_limit},
+        {"multi_lost_track_frees_slot_for_new_site", test_multi_lost_track_frees_slot_for_new_site},
+        {"multi_empty_frames_drop_everything", test_multi_empty_frames_drop_everything},
+        {"multi_far_candidate_does_not_steal_a_track", test_multi_far_candidate_does_not_steal_a_track},
     };
     int bad = 0;
     for (auto& t : tests) {

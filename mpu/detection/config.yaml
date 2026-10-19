@@ -6,7 +6,7 @@ work_width: 640
 roi_top_frac: 0.30       # ignore the top 30% of the image (sky)
 roi_bottom_frac: 0.0     # ignore the bottom part if the bot's body is visible
 z_thresh: 6.0            
-min_area_frac: 0.003     
+min_area_frac: 0.0015    
 max_area_frac: 0.35      
 w_color: 1.0             # weight - weight
 
@@ -20,3 +20,11 @@ max_fps: 10
 save_evidence: 1
 evidence_dir: evidence
 
+# how many sites to report per frame (strongest first)
+max_candidates: 3
+
+# --- tuning hints (when fewer than 3 sites show up) ---
+# * objects in the top part of the picture are ignored: set roi_top_frac: 0.0 to test
+# * small or far-away objects are dropped: lower min_area_frac (e.g. 0.001)
+# * neighbouring objects merge into one blob: add  morph_close: 3  (default 9)
+# * weak irregularities fall below the threshold: lower z_thresh (e.g. 4.5), but expect more false hits

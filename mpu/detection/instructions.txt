@@ -1,0 +1,4 @@
+to build - make
+geometry and tracker tests - make test
+./site_detector --device /dev/video2 --config config.yaml --show ---> run
+make clean - to clean executable binary files
