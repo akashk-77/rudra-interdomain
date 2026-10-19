@@ -100,7 +100,15 @@ DetectResult AnomalyDetector::detect(const cv::Mat& bgr, cv::Mat* debugScore) co
     std::vector<ScoredCandidate> all_candidates;
     for (int i = 1; i < n; ++i) {
         const double af = stats.at<int>(i, cv::CC_STAT_AREA) / roiPx;
-        if (af < cfg_.min_area_frac || af > cfg_.max_area_frac) continue;
+        const cv::Rect blobBox(stats.at<int>(i, cv::CC_STAT_LEFT),
+                               stats.at<int>(i, cv::CC_STAT_TOP) + top,
+                               stats.at<int>(i, cv::CC_STAT_WIDTH),
+                               stats.at<int>(i, cv::CC_STAT_HEIGHT));
+        if (af < cfg_.min_area_frac) {                       // remember near-misses for tuning
+            if (af >= cfg_.min_area_frac * 0.25) res.rejected_small.push_back(blobBox);
+            continue;
+        }
+        if (af > cfg_.max_area_frac) { res.rejected_large.push_back(blobBox); continue; }
         const cv::Mat mask = (labels == i);
         const double mz = cv::mean(score, mask)[0];
         const double rank = mz * std::sqrt(af);

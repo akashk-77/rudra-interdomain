@@ -72,6 +72,7 @@ bool loadConfig(const std::string& path, AppConfig& c) {
     readOpt(fs, "morph_close", c.det.morph_close);
     readOpt(fs, "min_area_frac", c.det.min_area_frac);
     readOpt(fs, "max_area_frac", c.det.max_area_frac);
+    readOpt(fs, "max_candidates", c.det.max_candidates);
     readOpt(fs, "confirm_frames", c.trk.confirm_frames);
     readOpt(fs, "lost_frames", c.trk.lost_frames);
     readOpt(fs, "gate_px", c.trk.gate_px);
@@ -191,16 +192,22 @@ bool openCamera(cv::VideoCapture& cap, const Options& o, const AppConfig& c) {
     return true;
 }
 
-std::string saveEvidence(const AppConfig& c, const cv::Mat& frame, double u, double v,
-                         const Pose& pose, uint64_t seq, long long tMs) {
+struct Mark { double u, v; int id; Pose pose; };
+
+std::string saveEvidence(const AppConfig& c, const cv::Mat& frame, const std::vector<Mark>& marks,
+                         uint64_t seq, long long tMs) {
     cv::Mat img = frame.clone();
-    cv::circle(img, cv::Point(static_cast<int>(u), static_cast<int>(v)), 25, cv::Scalar(0, 255, 0), 3);
-    char txt[96];
-    std::snprintf(txt, sizeof(txt), "seq %llu  bearing %s deg  dist %s m",
-                  static_cast<unsigned long long>(seq),
-                  num(pose.bearingOk, pose.bearing, "%.1f").c_str(),
-                  num(pose.distOk, pose.dist, "%.2f").c_str());
-    cv::putText(img, txt, cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 0), 2);
+    for (const Mark& m : marks) {
+        const cv::Point p(static_cast<int>(m.u), static_cast<int>(m.v));
+        cv::circle(img, p, 25, cv::Scalar(0, 255, 0), 3);
+        char txt[96];
+        std::snprintf(txt, sizeof(txt), "#%d x %s b %s d %s", m.id,
+                      num(true, m.pose.xNorm, "%.2f").c_str(),
+                      num(m.pose.bearingOk, m.pose.bearing, "%.1f").c_str(),
+                      num(m.pose.distOk, m.pose.dist, "%.2f").c_str());
+        cv::putText(img, txt, cv::Point(p.x + 30, p.y), cv::FONT_HERSHEY_SIMPLEX, 0.6,
+                    cv::Scalar(0, 255, 0), 2);
+    }
     std::error_code ec;
     std::filesystem::create_directories(c.evidenceDir, ec);
     char name[64];
@@ -225,7 +232,7 @@ int main(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
 
     const AnomalyDetector detector(cfg.det);
-    SiteTracker tracker(cfg.trk);
+    MultiTracker tracker(cfg.trk, cfg.det.max_candidates);
     const bool imageMode = !opt.image.empty();
     const bool videoMode = !opt.video.empty();
 
@@ -272,63 +279,75 @@ int main(int argc, char** argv) {
 
         cv::Mat dbg;
         const DetectResult det = detector.detect(frame, opt.show ? &dbg : nullptr);
-        
-        // Feed primary (highest-ranked) candidate to tracker
-        std::optional<Candidate> top_candidate = det.candidates.empty() ? std::nullopt : std::optional<Candidate>(det.candidates[0].candidate);
-        const TrackOutput tr = tracker.update(top_candidate);
 
-        // Print all detected candidates (up to 3)
-        if (!det.candidates.empty()) {
-            for (size_t i = 0; i < det.candidates.size(); ++i) {
-                const auto& sc = det.candidates[i];
-                const double u = sc.candidate.centroid.x / det.scale;
-                const double v = sc.candidate.centroid.y / det.scale;
-                const bool confirmedNow = (tr.status == TrackStatus::Confirmed && i == 0);
-                Pose pose = computePose(cfg, u, v, frame.size());
+        // Every candidate goes to the tracker; each site keeps its own stable id.
+        std::vector<Candidate> cands;
+        for (const auto& sc : det.candidates) cands.push_back(sc.candidate);
+        const std::vector<TrackedSite> sites = tracker.update(cands);
 
-                double conf = 0.0;
-                if (confirmedNow) {
-                    const double base = 1.0 - std::exp(-(tr.mean_z - cfg.det.z_thresh) / cfg.det.z_thresh);
-                    conf = std::min(1.0, std::max(0.0, base)) *
-                           std::min(1.0, tr.hits / (2.0 * std::max(1, cfg.trk.confirm_frames)));
-                }
+        std::vector<Mark> confirmedMarks;
+        bool anyNew = false;
+        if (sites.empty()) {
+            std::printf("SITE v1 seq=%llu id=0 t_ms=%lld state=SEARCHING found=0 calib=0 x_norm=na "
+                        "bearing_deg=na dist_m=na conf=0.00 area_frac=0.0000\n",
+                        static_cast<unsigned long long>(seq), tMs);
+        }
+        for (const TrackedSite& site : sites) {
+            const TrackOutput& tr = site.out;
+            const double u = tr.centroid.x / det.scale, v = tr.centroid.y / det.scale;  // original px
+            const bool found = (tr.status == TrackStatus::Confirmed);   // confirmed AND seen this frame
+            Pose pose;
+            if (found) pose = computePose(cfg, u, v, frame.size());
 
-                std::printf("SITE v1 seq=%llu idx=%zu t_ms=%lld state=%s found=%d calib=%d x_norm=%s bearing_deg=%s "
-                            "dist_m=%s conf=%.2f area_frac=%.4f\n",
-                            static_cast<unsigned long long>(seq), i, tMs, stateName(tr.status),
-                            confirmedNow ? 1 : 0, pose.calib,
-                            num(confirmedNow, pose.xNorm, "%.3f").c_str(),
-                            num(pose.bearingOk, pose.bearing, "%.1f").c_str(),
-                            num(pose.distOk, pose.dist, "%.2f").c_str(), conf,
-                            static_cast<double>(sc.candidate.area_frac));
-
-                if (i == 0 && tr.newly_confirmed && cfg.saveEvidence && !opt.noEvidence) {
-                    const std::string f = saveEvidence(cfg, frame, u, v, pose, seq, tMs);
-                    if (!f.empty()) std::printf("EVIDENCE v1 seq=%llu file=%s\n",
-                                                static_cast<unsigned long long>(seq), f.c_str());
-                    else std::fprintf(stderr, "could not write evidence image\n");
-                }
+            double conf = 0.0;
+            if (found) {
+                const double base = 1.0 - std::exp(-(tr.mean_z - cfg.det.z_thresh) / cfg.det.z_thresh);
+                conf = std::min(1.0, std::max(0.0, base)) *
+                       std::min(1.0, tr.hits / (2.0 * std::max(1, cfg.trk.confirm_frames)));
             }
-        } else {
-            std::printf("SITE v1 seq=%llu t_ms=%lld state=%s found=0 calib=0 x_norm=na bearing_deg=na dist_m=na conf=0.00 area_frac=0.0000\n",
-                        static_cast<unsigned long long>(seq), tMs, stateName(tr.status));
+            std::printf("SITE v1 seq=%llu id=%d t_ms=%lld state=%s found=%d calib=%d x_norm=%s "
+                        "bearing_deg=%s dist_m=%s conf=%.2f area_frac=%.4f\n",
+                        static_cast<unsigned long long>(seq), site.id, tMs, stateName(tr.status),
+                        found ? 1 : 0, pose.calib,
+                        num(found, pose.xNorm, "%.3f").c_str(),
+                        num(pose.bearingOk, pose.bearing, "%.1f").c_str(),
+                        num(pose.distOk, pose.dist, "%.2f").c_str(), conf,
+                        static_cast<double>(tr.area_frac));
+            if (found) confirmedMarks.push_back(Mark{u, v, site.id, pose});
+            if (tr.newly_confirmed) anyNew = true;
+        }
+
+        if (anyNew && cfg.saveEvidence && !opt.noEvidence) {
+            const std::string f = saveEvidence(cfg, frame, confirmedMarks, seq, tMs);
+            if (!f.empty()) std::printf("EVIDENCE v1 seq=%llu file=%s\n",
+                                        static_cast<unsigned long long>(seq), f.c_str());
+            else std::fprintf(stderr, "could not write evidence image\n");
         }
 
         if (opt.show) {
             cv::Mat view = frame.clone();
-            for (const auto& sc : det.candidates) {
-                cv::rectangle(view, cv::Rect(static_cast<int>(sc.box.x / det.scale),
-                                           static_cast<int>(sc.box.y / det.scale),
-                                           static_cast<int>(sc.box.width / det.scale),
-                                           static_cast<int>(sc.box.height / det.scale)),
-                              cv::Scalar(0, 255, 255), 2);
+            auto toOrig = [&](const cv::Rect& r) {
+                return cv::Rect(static_cast<int>(r.x / det.scale), static_cast<int>(r.y / det.scale),
+                                static_cast<int>(r.width / det.scale), static_cast<int>(r.height / det.scale));
+            };
+            for (const auto& sc : det.candidates) cv::rectangle(view, toOrig(sc.box), cv::Scalar(0, 255, 255), 2);
+            for (const auto& r : det.rejected_small) cv::rectangle(view, toOrig(r), cv::Scalar(0, 0, 255), 1);
+            for (const auto& r : det.rejected_large) cv::rectangle(view, toOrig(r), cv::Scalar(255, 0, 0), 1);
+            for (const TrackedSite& site : sites) {
+                const cv::Point p(static_cast<int>(site.out.centroid.x / det.scale),
+                                  static_cast<int>(site.out.centroid.y / det.scale));
+                const cv::Scalar col = (site.out.status == TrackStatus::Confirmed) ? cv::Scalar(0, 255, 0)
+                                                                                    : cv::Scalar(0, 165, 255);
+                cv::circle(view, p, 20, col, 2);
+                char lab[16];
+                std::snprintf(lab, sizeof(lab), "#%d", site.id);
+                cv::putText(view, lab, cv::Point(p.x + 24, p.y), cv::FONT_HERSHEY_SIMPLEX, 0.7, col, 2);
             }
-            if (tr.status != TrackStatus::Searching && !det.candidates.empty()) {
-                const auto& top_sc = det.candidates[0];
-                cv::circle(view, cv::Point(static_cast<int>(top_sc.candidate.centroid.x / det.scale), 
-                                           static_cast<int>(top_sc.candidate.centroid.y / det.scale)), 20,
-                           (tr.status == TrackStatus::Confirmed) ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 165, 255), 2);
-            }
+            char info[128];
+            std::snprintf(info, sizeof(info), "candidates %zu | tracked %zu | too small %zu (red) | too big %zu (blue)",
+                          det.candidates.size(), sites.size(), det.rejected_small.size(), det.rejected_large.size());
+            cv::putText(view, info, cv::Point(10, 25), cv::FONT_HERSHEY_SIMPLEX, 0.6,
+                        cv::Scalar(255, 255, 255), 2);
             cv::imshow("site_detector", view);
             if (!dbg.empty()) cv::imshow("anomaly score", dbg);
             if ((cv::waitKey(1) & 0xFF) == 'q') break;

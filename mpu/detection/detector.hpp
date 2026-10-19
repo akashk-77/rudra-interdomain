@@ -1,6 +1,7 @@
 #pragma once
 #include <opencv2/core.hpp>
 #include <optional>
+#include <vector>
 
 #include "tracker.hpp"
 
@@ -30,6 +31,8 @@ struct ScoredCandidate {
 
 struct DetectResult {
     std::vector<ScoredCandidate> candidates; 
+    std::vector<cv::Rect> rejected_small;   // blobs dropped: below min_area_frac (working px)
+    std::vector<cv::Rect> rejected_large;   // blobs dropped: above max_area_frac (working px)
     cv::Rect box;                  
     double   scale = 1.0;          
     int      roi_top = 0;          
