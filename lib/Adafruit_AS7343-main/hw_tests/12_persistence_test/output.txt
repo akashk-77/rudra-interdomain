@@ -1,0 +1,46 @@
+AS7343 Persistence Test
+=======================
+
+Part 1: Register Readback
+Value    Readback   Status
+-----    --------   ------
+0        0          PASS
+1        1          PASS
+2        2          PASS
+3        3          PASS
+4        4          PASS
+5        5          PASS
+6        6          PASS
+7        7          PASS
+8        8          PASS
+9        9          PASS
+10       10         PASS
+11       11         PASS
+12       12         PASS
+13       13         PASS
+14       14         PASS
+15       15         PASS
+
+Register readback: PASS
+
+Part 2: Hardware Timing Verification
+
+Calibration:
+  NeoPixels OFF (FZ baseline): 11
+  NeoPixels ON  (FZ peak):     650
+  HIGH threshold (base+20%):   138
+
+Counting Cycles to AINT:
+Persistence  Cycles  Status
+-----------  ------  ------
+     1            1      PASS
+     8           25      PASS
+
+Verification:
+  a) Persistence=1 triggers AINT:    PASS
+  b) Persistence=8 triggers AINT:    PASS
+  c) Higher persistence = more cycles (25 > 1): PASS
+
+Register readback: PASS
+Timing test:       PASS
+RESULT: PASS
