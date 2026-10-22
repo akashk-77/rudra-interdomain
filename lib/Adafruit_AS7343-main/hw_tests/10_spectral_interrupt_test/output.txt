@@ -1,0 +1,29 @@
+AS7343 Spectral Interrupt Test
+==============================
+INT pin: D2 (active low)
+
+Calibration:
+  NeoPixels OFF (CH0): 10
+  NeoPixels ON  (CH0): 194
+  Low threshold:  56
+  High threshold: 148
+
+INT pin after clear: HIGH (good)
+
+High threshold test (NeoPixels ON):
+  CH0 reading: 194 (threshold: 148)
+  Status AINT: SET PASS
+  INT pin:     LOW (active) PASS
+  After clear: HIGH PASS
+
+Low threshold test (NeoPixels OFF):
+  CH0 reading: 10 (threshold: 56)
+  Status AINT: SET PASS
+  INT pin:     LOW (active) PASS
+  After clear: HIGH PASS
+
+Summary:
+  Status register: PASS
+  INT pin:         PASS
+
+RESULT: PASS

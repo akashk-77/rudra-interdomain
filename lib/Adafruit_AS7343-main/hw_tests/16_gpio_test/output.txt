@@ -1,0 +1,22 @@
+AS7343 GPIO Test
+================
+Feedback pin: D3 connected to AS7343 GPIO
+
+Part 1: Output Mode Test
+  Output HIGH -> Pin reads: HIGH PASS
+  Output LOW  -> Pin reads: LOW PASS
+
+Part 2: Inversion Test
+  Inverted + Value HIGH -> Pin: LOW PASS
+  Inverted + Value LOW  -> Pin: HIGH PASS
+
+Part 3: Input Mode Test
+  Arduino drives HIGH -> AS7343 reads: HIGH PASS
+  Arduino drives LOW  -> AS7343 reads: LOW PASS
+
+Summary:
+  Output mode:   PASS
+  Inversion:     PASS
+  Input mode:    PASS
+
+RESULT: PASS
