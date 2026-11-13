@@ -9,6 +9,8 @@ Software for an autonomous soil-sampling rover, built by Team Rudra.
 The rover collects soil samples, runs chemistry tests on them, and sends sensor readings back to a base station. This repo holds the code for the telemetry link between the rover and a laptop, and for the camera-based soil tests.
 
 A heads-up before you dive in: this is a work in progress. The telemetry pipeline runs in simulation, but a lot of the real hardware (radio, calibration, vision integration) isn't hooked up yet.
+MPU - Raspberry Pi 4B
+MCU - STM32 Nucleo
 
 ---
 
