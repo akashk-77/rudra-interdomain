@@ -36,7 +36,7 @@ rudra-interdomain/
 `mpu/communication/` is the path a sensor reading takes on its way to the laptop:
 
 1. **`sensor_filter`** validates each reading (range checks, rate limits, outlier gating, stuck-sensor and stale-data detection) and runs a 1-D Kalman filter. It never reports missing data as zero. It reports an explicit quality: `UNKNOWN`, `VALID`, `STALE` or `INVALID`.
-2. **`telemetry_packet`** packs the filtered values into a small binary packet with a CRC-16, kept tiny on purpose since long-range radios only carry a few dozen bytes. The format is documented at the top of `telemetry_packet.h`.
+2. **`telemetry_packet`** packs the filtered values into a small binary packet, kept tiny on purpose since long-range radios only carry a few dozen bytes. The format is documented at the top of `telemetry_packet.h`.
 3. **`link_queue`** has two halves. On the rover, a FIFO holds packets during an outage and drops the oldest first when full. On the base station, a tracker spots duplicates, late packets and gaps in the sequence numbers.
 4. **`udp_sender`** is a demo that fakes three sensors (moisture, temperature, pH), pushes them through the whole pipeline, and sends them over UDP.
 
