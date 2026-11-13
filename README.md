@@ -75,7 +75,7 @@ You'll need a C compiler (`gcc`) and Python 3. OpenCV 4 (with `g++` and `pkg-con
 
 ### Build
 
-Everything is built with plain gcc. The telemetry code lives in `mpu/communication`:
+Everything is built with plain gcc. The telemetry code for the rover lives in `mpu/communication`:
 
 ```bash
 cd mpu/communication
@@ -83,7 +83,7 @@ cd mpu/communication
 # telemetry tests
 gcc -Wall -o test_telemetry test_telemetry.c telemetry_packet.c sensor_filter.c link_queue.c -lm
 
-# UDP sender (Linux/macOS)
+# UDP sender (Linux)
 gcc -o udp_sender udp_sender.c telemetry_packet.c sensor_filter.c link_queue.c -lm
 ```
 
